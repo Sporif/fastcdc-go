@@ -33,6 +33,7 @@ type Chunker struct {
 	end    int
 	offset int
 	eof    bool
+	table  *[256]uint64
 }
 
 // Options configures the options for the Chunker.
@@ -107,8 +108,13 @@ func NewChunker(rd io.Reader, opts Options) (*Chunker, error) {
 		return nil, err
 	}
 
-	for i := 0; i < len(table); i++ {
-		table[i] = table[i] ^ opts.Seed
+	localTable := &globalTable
+	if opts.Seed != 0 {
+		newTable := globalTable
+		for i := range newTable {
+			newTable[i] ^= opts.Seed
+		}
+		localTable = &newTable
 	}
 
 	normalization := opts.Normalization
@@ -129,6 +135,7 @@ func NewChunker(rd io.Reader, opts Options) (*Chunker, error) {
 		buf:      make([]byte, opts.BufSize),
 		cursor:   opts.BufSize,
 		end:      opts.BufSize,
+        table:    localTable,
 	}
 
 	return chunker, nil
@@ -212,14 +219,14 @@ func (c *Chunker) nextChunk(data []byte) (int, uint64) {
 	}
 
 	for ; i < m; i++ {
-		fp = (fp << 1) + table[data[i]]
+		fp = (fp << 1) + c.table[data[i]]
 		if (fp & c.maskS) == 0 {
 			return i + 1, fp
 		}
 	}
 
 	for ; i < n; i++ {
-		fp = (fp << 1) + table[data[i]]
+		fp = (fp << 1) + c.table[data[i]]
 		if (fp & c.maskL) == 0 {
 			return i + 1, fp
 		}
@@ -255,7 +262,7 @@ func (opts Options) validate() error {
 
 
 // 256 random uint64s for the rolling hash function
-var table [256]uint64 = [256]uint64{
+var globalTable [256]uint64 = [256]uint64{
 	0xe80e8d55032474b3, 0x11b25b61f5924e15, 0x03aa5bd82a9eb669, 0xc45a153ef107a38c,
 	0xeac874b86f0f57b9, 0xa5ccedec95ec79c7, 0xe15a3320ad42ac0a, 0x5ed3583fa63cec15,
 	0xcd497bf624a4451d, 0xf9ade5b059683605, 0x773940c03fb11ca1, 0xa36b16e4a6ae15b2,
